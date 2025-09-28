@@ -41,13 +41,15 @@ func StartServer(port string) error {
 
 	fmt.Printf("Server started on %s\n", port)
 
+	router := NewRouter()
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			fmt.Printf("Failed to accept connections: %v\n", err)
 			continue
 		}
-		go handleConnection(conn)
+		go handleConnection(conn, router)
 	}
 }
 
@@ -90,7 +92,7 @@ func StartServer(port string) error {
 //	Content-Type: text/plain
 //
 //	Hello! You requested /greet
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn, router *Router) {
 	defer conn.Close()
 
 	req, err := ParseRequest(conn)
@@ -99,15 +101,7 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	resp := Response{
-		Version: HTTPVersion,
-		Status:  200,
-		Reason:  "OK",
-		Headers: map[string]string{
-			"Content-Type": "text/plain",
-		},
-		Body: fmt.Sprintf("Hello! You requested %s", req.Path),
-	}
+	resp := router.Route(req)
 
 	if err := SendResponse(conn, resp); err != nil {
 		fmt.Printf("failed to send response: %v\n", err)
