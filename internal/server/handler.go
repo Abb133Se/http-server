@@ -60,6 +60,27 @@ func handleEcho(req *Request) Response {
 	}
 }
 
+// handleUserAgent returns the User-Agent string sent by the client.
+//
+// This handler demonstrates how to access HTTP request headers.
+// The server normalizes all header keys to lowercase, so the "User-Agent"
+// header must be retrieved as "user-agent".
+//
+// Example:
+//
+//	Client Request:
+//
+//	GET /user-agent HTTP/1.1
+//	Host: localhost:8080
+//	User-Agent: foobar/1.2.3
+//
+//	Server Response:
+//
+//	HTTP/1.1 200 OK
+//	Content-Length: 13
+//	Content-Type: text/plain
+//
+//	foobar/1.2.3
 func handleUserAgent(req *Request) Response {
 	ua := req.Headers["user-agent"]
 	return Response{
