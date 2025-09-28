@@ -51,23 +51,45 @@ func StartServer(port string) error {
 	}
 }
 
-// handleConnection manages communication with a single TCP client.
+// handleConnection manages the full lifecycle of a single client connection.
 //
-// This function runs in its own goroutine per connection. It attempts
-// to parse an HTTP request and logs the parsed information to stdout.
+// This function is executed in its own goroutine for each accepted TCP client.
+// It is responsible for parsing the HTTP request and sending back an appropriate
+// HTTP response.
+//
+// Flow:
+//  1. Defer closure of the connection to ensure cleanup.
+//  2. Parse the incoming HTTP request using ParseRequest.
+//  3. Construct an HTTP response with status 200 OK, a plain-text content type,
+//     and a body that echoes the requested path.
+//  4. Send the response using SendResponse.
+//  5. Log any errors encountered along the way.
 //
 // Parameters:
-//   - conn: The net.Conn object representing the client connection.
+//   - conn: The network connection representing the client session.
 //
 // Behavior:
-//   - Parses the request using ParseRequest.
-//   - Logs method, path, version, and headers.
-//   - Ensures the connection is closed after use.
+//   - On request parse failure: Logs the error and terminates gracefully.
+//   - On successful request: Returns a "Hello! You requested {path}" message.
+//   - Always closes the connection at the end of execution.
 //
 // Example:
 //
-//	// Inside StartServer
+//	// Inside StartServer accept loop
 //	go handleConnection(conn)
+//
+// Client Request:
+//
+//	GET /greet HTTP/1.1
+//	Host: localhost:8080
+//
+// Server Response:
+//
+//	HTTP/1.1 200 OK
+//	Content-Length: 28
+//	Content-Type: text/plain
+//
+//	Hello! You requested /greet
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
