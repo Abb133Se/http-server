@@ -77,8 +77,17 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	fmt.Printf("Parsed Request: Method=%s, Path=%s, Version=%s\n", req.Method, req.Path, req.Version)
-	for k, v := range req.Headers {
-		fmt.Printf("Header: %s=%s\n", k, v)
+	resp := Response{
+		Version: HTTPVersion,
+		Status:  200,
+		Reason:  "OK",
+		Headers: map[string]string{
+			"Content-Type": "text/plain",
+		},
+		Body: fmt.Sprintf("Hello! You requested %s", req.Path),
+	}
+
+	if err := SendResponse(conn, resp); err != nil {
+		fmt.Printf("failed to send response: %v\n", err)
 	}
 }
