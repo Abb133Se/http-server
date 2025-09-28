@@ -6,29 +6,32 @@ import (
 	"os"
 )
 
-// StartServer initializes and runs a TCP server on the specified port.
+// StartServer initializes and runs the HTTP server on the specified address.
 //
-// It listens for incoming client connections and spawns a new goroutine
-// for each accepted connection using handleConnection. The server runs
-// indefinitely until terminated by the user (e.g., SIGINT) or an error occurs.
+// It binds a TCP listener to the given address (e.g., ":8080"), creates a
+// Router, registers the default routes, and begins accepting client
+// connections. Each connection is handled in a separate goroutine.
+//
+// Registered routes:
+//   - "/" → handleRoot
+//   - "/echo/{message}" → handleEcho
+//   - "/user-agent" → handleUserAgent
 //
 // Parameters:
-//   - port: A string specifying the port/address to bind the server on,
-//     e.g. ":8080" or "127.0.0.1:9090".
+//   - addr: The address and port to bind the server on, e.g., ":8080" or "127.0.0.1:9090".
 //
 // Returns:
-//   - error: If the server fails to bind to the given port. On success,
-//     this function does not return under normal execution flow.
+//   - error: A wrapped error if the listener fails to bind or is closed unexpectedly.
+//     On success, this function typically blocks indefinitely.
 //
 // Behavior:
-//   - Logs a message to stdout when the server starts.
-//   - For each accepted connection, starts a goroutine to handle it.
-//   - Exits the process immediately if the port binding fails.
+//   - Logs a startup message when the server begins listening.
+//   - Spawns a new goroutine for each client connection.
+//   - Continues serving until terminated externally (e.g., SIGINT).
 //
 // Example:
 //
-//	err := server.StartServer(":8080")
-//	if err != nil {
+//	if err := server.StartServer(":8080"); err != nil {
 //	    log.Fatalf("Server failed: %v", err)
 //	}
 func StartServer(port string) error {
@@ -42,6 +45,9 @@ func StartServer(port string) error {
 	fmt.Printf("Server started on %s\n", port)
 
 	router := NewRouter()
+	router.Handle("/", handleRoot)
+	router.HandlePrefix("/echo/", handleEcho)
+	router.Handle("/user-agent", handleUserAgent)
 
 	for {
 		conn, err := listener.Accept()

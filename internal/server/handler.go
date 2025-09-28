@@ -59,3 +59,14 @@ func handleEcho(req *Request) Response {
 		Body:    message,
 	}
 }
+
+func handleUserAgent(req *Request) Response {
+	ua := req.Headers["user-agent"]
+	return Response{
+		Version: HTTPVersion,
+		Status:  200,
+		Reason:  "OK",
+		Headers: map[string]string{"Content-Type": "text/plain"},
+		Body:    ua,
+	}
+}
