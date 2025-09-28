@@ -53,24 +53,32 @@ func StartServer(port string) error {
 
 // handleConnection manages communication with a single TCP client.
 //
-// This function runs in its own goroutine per connection. It logs
-// the client's remote address, sends a greeting message, and then
-// closes the connection.
+// This function runs in its own goroutine per connection. It attempts
+// to parse an HTTP request and logs the parsed information to stdout.
 //
 // Parameters:
 //   - conn: The net.Conn object representing the client connection.
 //
 // Behavior:
-//   - Prints the client's remote address to stdout.
-//   - Sends a "Hello From TCP Server" message to the client.
+//   - Parses the request using ParseRequest.
+//   - Logs method, path, version, and headers.
 //   - Ensures the connection is closed after use.
 //
-// Note:
-//   - This function is unidirectional: it only sends a fixed greeting
-//     and does not handle client messages.
+// Example:
+//
+//	// Inside StartServer
+//	go handleConnection(conn)
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	fmt.Printf("New Connection From: %v\n", conn.RemoteAddr())
 
-	conn.Write([]byte("Hellow From TCP Server\n"))
+	req, err := ParseRequest(conn)
+	if err != nil {
+		fmt.Printf("Failed to Parse request: %v", err)
+		return
+	}
+
+	fmt.Printf("Parsed Request: Method=%s, Path=%s, Version=%s\n", req.Method, req.Path, req.Version)
+	for k, v := range req.Headers {
+		fmt.Printf("Header: %s=%s\n", k, v)
+	}
 }
