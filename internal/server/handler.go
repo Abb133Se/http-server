@@ -1,6 +1,14 @@
 package server
 
-import "strings"
+import (
+	"fmt"
+	"mime"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
 
 // handleRoot is the default handler for the root ("/") path.
 //
@@ -22,7 +30,7 @@ func handleRoot(req *Request) Response {
 		Status:  200,
 		Reason:  "OK",
 		Headers: map[string]string{"Content-Type": "text/plain"},
-		Body:    "Welcome to my HTTP server",
+		Body:    []byte("Welcome to my HTTP server"),
 	}
 }
 
@@ -56,7 +64,7 @@ func handleEcho(req *Request) Response {
 		Status:  200,
 		Reason:  "OK",
 		Headers: map[string]string{"Content-Type": "text/plain"},
-		Body:    message,
+		Body:    []byte(message),
 	}
 }
 
@@ -88,6 +96,63 @@ func handleUserAgent(req *Request) Response {
 		Status:  200,
 		Reason:  "OK",
 		Headers: map[string]string{"Content-Type": "text/plain"},
-		Body:    ua,
+		Body:    []byte(ua),
+	}
+}
+
+func handleFiles(req *Request) Response {
+	parts := strings.SplitN(req.Path, "/files/", 2)
+	if len(parts) < 2 || parts[1] == "" {
+		return Response{
+			Version: "HTTP/1.1",
+			Status:  400,
+			Reason:  "Bad Request",
+			Headers: map[string]string{"Content-Type": "text/plain"},
+			Body:    []byte("No file specified"),
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return Response{
+			Version: "HTTP/1.1",
+			Status:  500,
+			Reason:  "Internal Server Error",
+			Headers: map[string]string{"Content-Type": "text/plain"},
+			Body:    []byte("Cannot get working directory"),
+		}
+	}
+
+	filePath := filepath.Join(cwd, "public", parts[1])
+
+	// Read file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		fmt.Println(err.Error())
+		return Response{
+			Version: "HTTP/1.1",
+			Status:  http.StatusNotFound,
+			Reason:  "Not Found",
+			Headers: map[string]string{"Content-Type": "text/plain"},
+			Body:    []byte(fmt.Sprintf("File not found: %s", parts[1])),
+		}
+	}
+
+	// Detect MIME type
+	ext := filepath.Ext(filePath)
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	return Response{
+		Version: "HTTP/1.1",
+		Status:  http.StatusOK,
+		Reason:  "OK",
+		Headers: map[string]string{
+			"Content-Type":   mimeType,
+			"Content-Length": strconv.Itoa(len(data)),
+		},
+		Body: data,
 	}
 }

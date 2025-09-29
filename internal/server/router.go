@@ -122,6 +122,6 @@ func (r *Router) Route(req *Request) Response {
 		Status:  404,
 		Reason:  "Not Found",
 		Headers: map[string]string{"Content-Type": "text/plain"},
-		Body:    "404 page not found",
+		Body:    []byte("404 page not found"),
 	}
 }
