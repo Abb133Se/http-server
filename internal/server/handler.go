@@ -100,6 +100,18 @@ func handleUserAgent(req *Request) Response {
 	}
 }
 
+// handleFiles serves static files from the "public" directory.
+//
+// Behavior:
+//   - Resolves the requested file path relative to the "public" folder.
+//   - Returns 400 if no filename is provided.
+//   - Returns 404 if the file does not exist.
+//   - Returns 500 if the server cannot resolve its working directory.
+//   - Otherwise, serves the file with an appropriate Content-Type.
+//
+// Example:
+//
+//	GET /files/example.txt
 func handleFiles(req *Request) Response {
 	parts := strings.SplitN(req.Path, "/files/", 2)
 	if len(parts) < 2 || parts[1] == "" {

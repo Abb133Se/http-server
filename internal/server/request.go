@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -102,7 +103,8 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 
 	if val, ok := req.Headers["content-length"]; ok {
 		var bodyBuilder strings.Builder
-		_, err := io.CopyN(&bodyBuilder, reader, int64(len(val)))
+		contentLength, _ := strconv.Atoi(val)
+		_, err := io.CopyN(&bodyBuilder, reader, int64(contentLength))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read body: %w", err)
 		}
