@@ -21,7 +21,7 @@ type Response struct {
 	Status  int
 	Reason  string
 	Headers map[string]string
-	Body    string
+	Body    []byte
 }
 
 // BuildResponse constructs a raw HTTP response string from the provided parameters.
@@ -58,35 +58,29 @@ type Response struct {
 //	// Content-Type: text/html\r\n
 //	// \r\n
 //	// <h1>Hello</h1>
-func BuildResponse(status int, reason string, headers map[string]string, body string) string {
+func BuildResponse(status int, reason string, headers map[string]string, body []byte) []byte {
 	if headers == nil {
 		headers = make(map[string]string)
 	}
 
-	// Ensure Content-Length is set based on body length
-	headers["Content-Length"] = strconv.Itoa(len(body))
-
-	// Default to plain text if no Content-Type provided
+	// If not set by handler, set default headers
 	if _, ok := headers["Content-Type"]; !ok {
 		headers["Content-Type"] = "text/plain"
 	}
+	if _, ok := headers["Content-Length"]; !ok {
+		headers["Content-Length"] = strconv.Itoa(len(body))
+	}
 
 	var sb strings.Builder
-
-	// Write status line: HTTP-Version Status Reason
 	sb.WriteString(fmt.Sprintf("%s %d %s%s", HTTPVersion, status, reason, CLRF))
-
-	// Write headers
 	for k, v := range headers {
 		sb.WriteString(fmt.Sprintf("%s: %s%s", k, v, CLRF))
 	}
-	// End header section
 	sb.WriteString(CLRF)
 
-	// Write bofy
-	sb.WriteString(body)
-
-	return sb.String()
+	// Combine headers + body
+	response := append([]byte(sb.String()), body...)
+	return response
 }
 
 // SendResponse writes an HTTP response to a TCP connection.
@@ -121,6 +115,6 @@ func BuildResponse(status int, reason string, headers map[string]string, body st
 //	}
 func SendResponse(conn net.Conn, res Response) error {
 	raw := BuildResponse(res.Status, res.Reason, res.Headers, res.Body)
-	_, err := conn.Write([]byte(raw))
+	_, err := conn.Write(raw)
 	return err
 }

@@ -48,6 +48,7 @@ func StartServer(port string) error {
 	router.Handle("/", handleRoot)
 	router.HandlePrefix("/echo/", handleEcho)
 	router.Handle("/user-agent", handleUserAgent)
+	router.HandlePrefix("/files/", handleFiles)
 
 	for {
 		conn, err := listener.Accept()
