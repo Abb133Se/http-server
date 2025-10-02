@@ -1,9 +1,7 @@
 package server
 
 import (
-	"fmt"
 	"mime"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -64,18 +62,20 @@ func handleUserAgent(req *Request) Response {
 
 // handleFiles handles requests to "/files/{filename}".
 //
-// Supported methods:
-//   - GET: Returns the contents of the requested file from the
-//     "public" directory with an appropriate Content-Type.
-//   - POST: Creates or overwrites a file in the "public" directory
-//     with the request body.
+// Supported Methods:
+//   - GET: Reads and returns the requested file from the "public" directory
+//     with an appropriate Content-Type.
+//   - POST: Creates or overwrites a file in the "public" directory with
+//     the request body.
 //
-// Errors:
-//   - 400 if no file is specified.
-//   - 404 if the file does not exist (GET).
-//   - 500 if the server cannot resolve the working directory or
-//     read/write the file.
-//   - 405 if a method other than GET or POST is used.
+// Error Handling:
+//   - 400 Bad Request: No file specified.
+//   - 404 Not Found: File does not exist (GET).
+//   - 500 Internal Server Error: Failed to read/write file.
+//   - 405 Method Not Allowed: Any method other than GET or POST.
+//
+// Returns:
+//   - Response: An HTTP response with the appropriate status, headers, and body.
 func handleFiles(req *Request) Response {
 	parts := strings.SplitN(req.Path, "/files/", 2)
 	if len(parts) < 2 || parts[1] == "" {
@@ -88,62 +88,23 @@ func handleFiles(req *Request) Response {
 		}
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return Response{
-			Version: "HTTP/1.1",
-			Status:  500,
-			Reason:  "Internal Server Error",
-			Headers: map[string]string{"Content-Type": "text/plain"},
-			Body:    []byte("Cannot get working directory"),
-		}
-	}
-
+	cwd, _ := os.Getwd()
 	filePath := filepath.Join(cwd, "public", parts[1])
 
-	if req.Method == "POST" {
-		err := os.WriteFile(filePath, req.Body, 0644)
-		if err != nil {
-			return Response{
-				Version: HTTPVersion,
-				Status:  500,
-				Reason:  "Internal Server Error",
-				Headers: map[string]string{"Content-Type": "text/plain"},
-				Body:    []byte(fmt.Sprintf("Failed to write file: %s", err.Error())),
-			}
-		}
-		return Response{
-			Version: HTTPVersion,
-			Status:  http.StatusCreated,
-			Reason:  "Created",
-			Headers: map[string]string{"Content-Type": "text/plain"},
-			Body:    []byte("File created successfully"),
-		}
-	}
-
-	if req.Method == "GET" {
+	switch req.Method {
+	case "GET":
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			fmt.Println(err.Error())
-			return Response{
-				Version: "HTTP/1.1",
-				Status:  http.StatusNotFound,
-				Reason:  "Not Found",
-				Headers: map[string]string{"Content-Type": "text/plain"},
-				Body:    []byte(fmt.Sprintf("File not found: %s", parts[1])),
-			}
+			return NotFoundResponse()
 		}
-
-		// Detect MIME type
 		ext := filepath.Ext(filePath)
 		mimeType := mime.TypeByExtension(ext)
 		if mimeType == "" {
 			mimeType = "application/octet-stream"
 		}
-
 		return Response{
 			Version: "HTTP/1.1",
-			Status:  http.StatusOK,
+			Status:  200,
 			Reason:  "OK",
 			Headers: map[string]string{
 				"Content-Type":   mimeType,
@@ -151,13 +112,24 @@ func handleFiles(req *Request) Response {
 			},
 			Body: data,
 		}
-	}
-
-	return Response{
-		Version: HTTPVersion,
-		Status:  http.StatusMethodNotAllowed,
-		Reason:  "Method Not Allowed",
-		Headers: map[string]string{"Content-Type": "text/plain"},
-		Body:    []byte("Only GET and POST methods are supported on /files"),
+	case "POST":
+		if err := os.WriteFile(filePath, req.Body, 0644); err != nil {
+			return Response{
+				Version: "HTTP/1.1",
+				Status:  500,
+				Reason:  "Internal Server Error",
+				Headers: map[string]string{"Content-Type": "text/plain"},
+				Body:    []byte("Failed to write file"),
+			}
+		}
+		return Response{
+			Version: "HTTP/1.1",
+			Status:  201,
+			Reason:  "Created",
+			Headers: map[string]string{"Content-Type": "text/plain"},
+			Body:    []byte("File created successfully"),
+		}
+	default:
+		return MethodNotAllowedResponse()
 	}
 }
