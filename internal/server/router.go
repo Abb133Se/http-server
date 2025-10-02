@@ -5,8 +5,7 @@ import "strings"
 // HandlerFunc defines the function signature for all HTTP route handlers.
 //
 // A handler receives a parsed HTTP request and returns a Response struct.
-// It should not directly write to the network connection; instead, the server
-// takes care of serializing and sending the Response.
+// It must not write directly to the network connection.
 //
 // Example:
 //
@@ -16,112 +15,107 @@ import "strings"
 //	        Status:  200,
 //	        Reason:  "OK",
 //	        Headers: map[string]string{"Content-Type": "text/plain"},
-//	        Body:    "Hello, World!",
+//	        Body:    []byte("Hello, World!"),
 //	    }
 //	}
 type HandlerFunc func(req *Request) Response
 
-// route represents a single routing rule.
+// Router stores mappings of paths (exact or prefix) to handlers.
 //
-// Fields:
-//   - path: The path to match against (e.g., "/about").
-//   - handler: The function invoked when the path matches.
-//   - prefix: Whether the path should be matched by prefix instead of exact equality.
-//
-// Notes:
-//   - If prefix is true, the request path must start with the given route path.
-//   - If prefix is false, the request path must equal the given route path.
-type route struct {
-	path    string
-	handler HandlerFunc
-	prefix  bool // if true, match by prefix instead of exact
-}
-
-// Router is a lightweight HTTP request router.
-//
-// It maintains a list of routes and matches incoming requests to the
-// appropriate handler. Each route can be registered for exact or prefix-based
-// matching. The router returns a 404 Not Found response if no route matches.
-//
-// Features:
-//   - Exact path matching (e.g., "/").
-//   - Prefix-based matching (e.g., "/echo/").
-//   - Graceful fallback to 404 if no route applies.
-//
-// Example:
-//
-//	router := NewRouter()
-//	router.Handle("/", rootHandler)
-//	router.HandlePrefix("/echo/", echoHandler)
-//	resp := router.Route(&Request{Path: "/echo/hello"})
+// It supports both exact matches ("/path") and prefix matches ("/files/…").
+// Each path can have multiple handlers mapped by HTTP method.
 type Router struct {
-	routes []route
+	routes       map[string]map[string]HandlerFunc // exact path → method → handler
+	prefixRoutes map[string]map[string]HandlerFunc // prefix path → method → handler
 }
 
-// NewRouter creates and initializes a new Router with no predefined routes.
+// NewRouter creates and initializes a new Router.
 //
 // Returns:
-//   - *Router: A pointer to a Router instance ready to register routes.
+//   - *Router: A pointer to a Router instance with no predefined routes.
 func NewRouter() *Router {
-	return &Router{routes: []route{}}
+	return &Router{
+		routes:       map[string]map[string]HandlerFunc{},
+		prefixRoutes: map[string]map[string]HandlerFunc{},
+	}
 }
 
-// Handle registers a handler for an exact path match.
+// Handle registers a handler for an exact path and HTTP method.
 //
 // Parameters:
-//   - path: The request path to match (e.g., "/about").
-//   - handler: The function responsible for handling requests to this path.
-//
-// Notes:
-//   - Paths are checked in the order they were registered.
-//   - Multiple handlers for the same path are allowed, but only the first
-//     matching handler will be used.
-func (r *Router) Handle(path string, handler HandlerFunc) {
-	r.routes = append(r.routes, route{path: path, handler: handler, prefix: false})
+//   - path:    Exact match path (e.g., "/").
+//   - method:  HTTP method (e.g., "GET", "POST").
+//   - handler: The handler function to execute for this path+method.
+func (r *Router) Handle(path string, method string, handler HandlerFunc) {
+	if r.routes[path] == nil {
+		r.routes[path] = make(map[string]HandlerFunc)
+	}
+	r.routes[path][method] = handler
 }
 
-// HandlePrefix registers a handler for prefix-based path matching.
+// HandlePrefix registers a handler for all routes beginning with a prefix.
 //
 // Parameters:
-//   - path: The path prefix to match (e.g., "/api/").
-//   - handler: The function responsible for handling requests to this prefix.
-//
-// Behavior:
-//   - Any request path starting with the given prefix will trigger this handler.
-//   - Useful for implementing grouped routes like `/api/v1/...`.
-func (r *Router) HandlePrefix(path string, handler HandlerFunc) {
-	r.routes = append(r.routes, route{path: path, handler: handler, prefix: true})
+//   - path:    Path prefix (e.g., "/files/").
+//   - method:  HTTP method (e.g., "GET", "POST").
+//   - handler: The handler function to execute for matching requests.
+func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
+	if r.prefixRoutes[path] == nil {
+		r.prefixRoutes[path] = make(map[string]HandlerFunc)
+	}
+	r.prefixRoutes[path][method] = handler
 }
 
-// Route matches an HTTP request to the appropriate handler and returns a response.
+// Route dispatches a request to the correct handler.
 //
-// Behavior:
-//   - Iterates over registered routes in the order they were added.
-//   - For prefix routes: Uses strings.HasPrefix to check for matches.
-//   - For exact routes: Compares paths with equality.
-//   - Returns the first matching handler's response.
-//   - If no routes match, returns a default 404 Not Found response.
+// Matching priority:
+//   1. Exact match in routes.
+//   2. Prefix match in prefixRoutes.
+//   3. Returns a 404 Not Found if no match is found.
+//   4. Returns a 405 Method Not Allowed if path matches but method does not.
 //
 // Parameters:
 //   - req: The parsed HTTP request to route.
 //
 // Returns:
-//   - Response: The HTTP response generated by the matched handler or a 404.
+//   - Response: The response from the matched handler, or a generated error response.
 func (r *Router) Route(req *Request) Response {
-	for _, route := range r.routes {
-		if route.prefix && strings.HasPrefix(req.Path, route.path) {
-			return route.handler(req)
+	if methods, ok := r.routes[req.Path]; ok {
+		if h, ok := methods[req.Method]; ok {
+			return h(req)
 		}
-		if !route.prefix && req.Path == route.path {
-			return route.handler(req)
-		}
+		return MethodNotAllowedResponse()
 	}
 
+	for prefix, methods := range r.prefixRoutes {
+		if strings.HasPrefix(req.Path, prefix) {
+			if h, ok := methods[req.Method]; ok {
+				return h(req)
+			}
+			return MethodNotAllowedResponse()
+		}
+	}
+	return NotFoundResponse()
+}
+
+// MethodNotAllowedResponse generates a 405 Method Not Allowed response.
+func MethodNotAllowedResponse() Response {
 	return Response{
-		Version: HTTPVersion,
+		Version: "HTTP/1.1",
+		Status:  405,
+		Reason:  "Method Not Allowed",
+		Headers: map[string]string{"Content-Type": "text/plain"},
+		Body:    []byte("405 Method Not Allowed"),
+	}
+}
+
+// NotFoundResponse generates a 404 Not Found response.
+func NotFoundResponse() Response {
+	return Response{
+		Version: "HTTP/1.1",
 		Status:  404,
 		Reason:  "Not Found",
 		Headers: map[string]string{"Content-Type": "text/plain"},
-		Body:    []byte("404 page not found"),
+		Body:    []byte("404 Not Found"),
 	}
 }

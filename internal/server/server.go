@@ -6,28 +6,29 @@ import (
 	"os"
 )
 
-// StartServer initializes and runs the HTTP server on the specified address.
+// StartServer initializes and runs the HTTP server on the specified port.
 //
-// It binds a TCP listener to the given address (e.g., ":8080"), creates a
-// Router, registers the default routes, and begins accepting client
-// connections. Each connection is handled in a separate goroutine.
+// It binds a TCP listener to the given port (e.g., ":8080"), creates a Router,
+// registers default routes, and begins accepting client connections. Each
+// connection is handled concurrently in its own goroutine.
 //
 // Registered routes:
 //   - "/" → handleRoot
 //   - "/echo/{message}" → handleEcho
 //   - "/user-agent" → handleUserAgent
+//   - "/files/{filename}" → handleFiles (GET, POST)
 //
 // Parameters:
-//   - addr: The address and port to bind the server on, e.g., ":8080" or "127.0.0.1:9090".
+//   - port: The address and port to bind the server on (e.g., ":8080" or "127.0.0.1:9090").
 //
 // Returns:
-//   - error: A wrapped error if the listener fails to bind or is closed unexpectedly.
-//     On success, this function typically blocks indefinitely.
+//   - error: Only returned if the TCP listener fails to start.
+//     Otherwise, this function typically blocks indefinitely until terminated.
 //
 // Behavior:
 //   - Logs a startup message when the server begins listening.
-//   - Spawns a new goroutine for each client connection.
-//   - Continues serving until terminated externally (e.g., SIGINT).
+//   - Spawns a new goroutine for each accepted client connection.
+//   - Continues running until the process is stopped.
 //
 // Example:
 //
@@ -45,10 +46,12 @@ func StartServer(port string) error {
 	fmt.Printf("Server started on %s\n", port)
 
 	router := NewRouter()
-	router.Handle("/", handleRoot)
-	router.HandlePrefix("/echo/", handleEcho)
-	router.Handle("/user-agent", handleUserAgent)
-	router.HandlePrefix("/files/", handleFiles)
+	router.Handle("/", "GET", handleRoot)
+	router.HandlePrefix("/echo/", "GET", handleEcho)
+	router.Handle("/user-agent", "GET", handleUserAgent)
+
+	router.HandlePrefix("/files/", "GET", handleFiles)
+	router.HandlePrefix("/files/", "POST", handleFiles)
 
 	for {
 		conn, err := listener.Accept()
@@ -60,45 +63,28 @@ func StartServer(port string) error {
 	}
 }
 
-// handleConnection manages the full lifecycle of a single client connection.
-//
-// This function is executed in its own goroutine for each accepted TCP client.
-// It is responsible for parsing the HTTP request and sending back an appropriate
-// HTTP response.
+// handleConnection manages the lifecycle of a single client connection.
 //
 // Flow:
-//  1. Defer closure of the connection to ensure cleanup.
-//  2. Parse the incoming HTTP request using ParseRequest.
-//  3. Construct an HTTP response with status 200 OK, a plain-text content type,
-//     and a body that echoes the requested path.
-//  4. Send the response using SendResponse.
-//  5. Log any errors encountered along the way.
+//  1. Defers closure of the client connection.
+//  2. Parses the HTTP request from the connection.
+//  3. Passes the request to the router to determine the correct handler.
+//  4. Sends back the handler's response.
+//  5. Logs errors if parsing or sending fails.
 //
 // Parameters:
-//   - conn: The network connection representing the client session.
+//   - conn:   The network connection representing the client session.
+//   - router: The Router instance used to dispatch the request.
 //
 // Behavior:
-//   - On request parse failure: Logs the error and terminates gracefully.
-//   - On successful request: Returns a "Hello! You requested {path}" message.
-//   - Always closes the connection at the end of execution.
+//   - On parse failure: Logs the error and terminates gracefully.
+//   - On success: Routes the request and sends the corresponding response.
+//   - Always closes the connection when finished.
 //
 // Example:
 //
 //	// Inside StartServer accept loop
-//	go handleConnection(conn)
-//
-// Client Request:
-//
-//	GET /greet HTTP/1.1
-//	Host: localhost:8080
-//
-// Server Response:
-//
-//	HTTP/1.1 200 OK
-//	Content-Length: 28
-//	Content-Type: text/plain
-//
-//	Hello! You requested /greet
+//	go handleConnection(conn, router)
 func handleConnection(conn net.Conn, router *Router) {
 	defer conn.Close()
 
