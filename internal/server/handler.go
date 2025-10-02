@@ -10,20 +10,10 @@ import (
 	"strings"
 )
 
-// handleRoot is the default handler for the root ("/") path.
+// handleRoot handles requests to the root ("/") path.
 //
-// Returns:
-//   - A Response with HTTP status 200 OK.
-//   - Content-Type set to "text/plain".
-//   - Body message welcoming the client to the server.
-//
-// Example Response:
-//
-//	HTTP/1.1 200 OK
-//	Content-Type: text/plain
-//	Content-Length: 27
-//
-//	Welcome to my HTTP server
+// It returns a plain text response with status 200 OK and a
+// welcome message in the body.
 func handleRoot(req *Request) Response {
 	return Response{
 		Version: HTTPVersion,
@@ -34,24 +24,11 @@ func handleRoot(req *Request) Response {
 	}
 }
 
-// handleEcho is the handler for the "/echo/{message}" path.
+// handleEcho handles requests to "/echo/{message}".
 //
-// Behavior:
-//   - Extracts the substring after "/echo/" from the request path.
-//   - Returns the extracted message as the body of the response.
-//   - If no message is provided, the body is an empty string.
-//
-// Example Request:
-//
-//	GET /echo/hello HTTP/1.1
-//
-// Example Response:
-//
-//	HTTP/1.1 200 OK
-//	Content-Type: text/plain
-//	Content-Length: 5
-//
-//	hello
+// It extracts the message part of the path and returns it as the
+// plain text response body. If no message is provided, the body
+// is empty.
 func handleEcho(req *Request) Response {
 	parts := strings.SplitN(req.Path, "/echo/", 2)
 	message := ""
@@ -68,27 +45,12 @@ func handleEcho(req *Request) Response {
 	}
 }
 
-// handleUserAgent returns the User-Agent string sent by the client.
+// handleUserAgent handles requests to "/user-agent".
 //
-// This handler demonstrates how to access HTTP request headers.
-// The server normalizes all header keys to lowercase, so the "User-Agent"
-// header must be retrieved as "user-agent".
-//
-// Example:
-//
-//	Client Request:
-//
-//	GET /user-agent HTTP/1.1
-//	Host: localhost:8080
-//	User-Agent: foobar/1.2.3
-//
-//	Server Response:
-//
-//	HTTP/1.1 200 OK
-//	Content-Length: 13
-//	Content-Type: text/plain
-//
-//	foobar/1.2.3
+// It returns the value of the "User-Agent" request header as plain
+// text. Header keys are stored in lowercase internally, so the
+// correct key is "user-agent".
+
 func handleUserAgent(req *Request) Response {
 	ua := req.Headers["user-agent"]
 	return Response{
@@ -100,18 +62,20 @@ func handleUserAgent(req *Request) Response {
 	}
 }
 
-// handleFiles serves static files from the "public" directory.
+// handleFiles handles requests to "/files/{filename}".
 //
-// Behavior:
-//   - Resolves the requested file path relative to the "public" folder.
-//   - Returns 400 if no filename is provided.
-//   - Returns 404 if the file does not exist.
-//   - Returns 500 if the server cannot resolve its working directory.
-//   - Otherwise, serves the file with an appropriate Content-Type.
+// Supported methods:
+//   - GET: Returns the contents of the requested file from the
+//     "public" directory with an appropriate Content-Type.
+//   - POST: Creates or overwrites a file in the "public" directory
+//     with the request body.
 //
-// Example:
-//
-//	GET /files/example.txt
+// Errors:
+//   - 400 if no file is specified.
+//   - 404 if the file does not exist (GET).
+//   - 500 if the server cannot resolve the working directory or
+//     read/write the file.
+//   - 405 if a method other than GET or POST is used.
 func handleFiles(req *Request) Response {
 	parts := strings.SplitN(req.Path, "/files/", 2)
 	if len(parts) < 2 || parts[1] == "" {
@@ -137,34 +101,63 @@ func handleFiles(req *Request) Response {
 
 	filePath := filepath.Join(cwd, "public", parts[1])
 
-	// Read file
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		fmt.Println(err.Error())
+	if req.Method == "POST" {
+		err := os.WriteFile(filePath, req.Body, 0644)
+		if err != nil {
+			return Response{
+				Version: HTTPVersion,
+				Status:  500,
+				Reason:  "Internal Server Error",
+				Headers: map[string]string{"Content-Type": "text/plain"},
+				Body:    []byte(fmt.Sprintf("Failed to write file: %s", err.Error())),
+			}
+		}
 		return Response{
-			Version: "HTTP/1.1",
-			Status:  http.StatusNotFound,
-			Reason:  "Not Found",
+			Version: HTTPVersion,
+			Status:  http.StatusCreated,
+			Reason:  "Created",
 			Headers: map[string]string{"Content-Type": "text/plain"},
-			Body:    []byte(fmt.Sprintf("File not found: %s", parts[1])),
+			Body:    []byte("File created successfully"),
 		}
 	}
 
-	// Detect MIME type
-	ext := filepath.Ext(filePath)
-	mimeType := mime.TypeByExtension(ext)
-	if mimeType == "" {
-		mimeType = "application/octet-stream"
+	if req.Method == "GET" {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Println(err.Error())
+			return Response{
+				Version: "HTTP/1.1",
+				Status:  http.StatusNotFound,
+				Reason:  "Not Found",
+				Headers: map[string]string{"Content-Type": "text/plain"},
+				Body:    []byte(fmt.Sprintf("File not found: %s", parts[1])),
+			}
+		}
+
+		// Detect MIME type
+		ext := filepath.Ext(filePath)
+		mimeType := mime.TypeByExtension(ext)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+
+		return Response{
+			Version: "HTTP/1.1",
+			Status:  http.StatusOK,
+			Reason:  "OK",
+			Headers: map[string]string{
+				"Content-Type":   mimeType,
+				"Content-Length": strconv.Itoa(len(data)),
+			},
+			Body: data,
+		}
 	}
 
 	return Response{
-		Version: "HTTP/1.1",
-		Status:  http.StatusOK,
-		Reason:  "OK",
-		Headers: map[string]string{
-			"Content-Type":   mimeType,
-			"Content-Length": strconv.Itoa(len(data)),
-		},
-		Body: data,
+		Version: HTTPVersion,
+		Status:  http.StatusMethodNotAllowed,
+		Reason:  "Method Not Allowed",
+		Headers: map[string]string{"Content-Type": "text/plain"},
+		Body:    []byte("Only GET and POST methods are supported on /files"),
 	}
 }
