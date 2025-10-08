@@ -1,3 +1,6 @@
+// Package config provides centralized configuration management for the HTTP server.
+// It loads settings from environment variables (with support for .env files),
+// applies sensible defaults, and exposes strongly typed timeouts and log levels.
 package config
 
 import (
@@ -9,6 +12,18 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config holds the server's runtime configuration parameters.
+//
+// All timeout values are expressed in seconds and are converted into time.Duration.
+// It supports configuration through environment variables or a .env file.
+//
+// Environment variables:
+//   - PORT:          Server listening port (default: "4221")
+//   - READ_TIMEOUT:  Maximum duration for reading a request (default: 5 seconds)
+//   - WRITE_TIMEOUT: Maximum duration for writing a response (default: 5 seconds)
+//   - IDLE_TIMEOUT:  Maximum time to keep an idle connection open (default: 30 seconds)
+//   - LOG_LEVEL:     Logging verbosity level ("debug", "info", "warn", default: "info")
+
 type Config struct {
 	Port         string
 	ReadTimeout  time.Duration
@@ -17,6 +32,17 @@ type Config struct {
 	LogLevel     string
 }
 
+// LoadConfig loads configuration settings from environment variables or a .env file.
+//
+// If no .env file is found, defaults are applied and a warning is logged.
+// Invalid numeric values for timeout fields are replaced with default durations.
+// Returns a pointer to a fully populated Config struct.
+//
+// Example:
+//
+//	cfg := config.LoadConfig()
+//	utils.InitLogger(cfg.LogLevel)
+//	server.Start(cfg.Port, cfg)
 func LoadConfig() *Config {
 	if err := godotenv.Load(); err != nil {
 		utils.Warn("No .env file found, using default environment values")
@@ -53,6 +79,10 @@ func LoadConfig() *Config {
 	return cfg
 }
 
+// getEnv returns the value of the specified environment variable.
+// If the variable is not set, it returns the provided fallback value.
+//
+// This helper ensures that missing environment variables do not cause runtime errors.
 func getEnv(key, fallBack string) string {
 	if val, ok := os.LookupEnv(key); ok {
 		return val
