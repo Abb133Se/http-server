@@ -67,23 +67,33 @@ func StartServer(port string) error {
 	}
 }
 
-// handleConnection manages the lifecycle of a single client connection.
+// handleConnection manages the full lifecycle of a single client connection.
+//
+// This function runs in its own goroutine for each accepted TCP connection.
+// It supports persistent (keep-alive) connections, allowing multiple HTTP
+// requests to be served sequentially over the same connection.
 //
 // Flow:
-//  1. Defers closure of the client connection.
-//  2. Parses the HTTP request from the connection.
-//  3. Passes the request to the router to determine the correct handler.
-//  4. Sends back the handler's response.
-//  5. Logs errors if parsing or sending fails.
+//  1. Defers closure of the client connection to ensure cleanup.
+//  2. Sets a read deadline (5 seconds) to prevent hanging clients.
+//  3. Parses the incoming HTTP request using ParseRequest.
+//  4. Routes the request through the provided Router to obtain a response.
+//  5. Adds a "Connection" header based on the client's request
+//     (supports "keep-alive" and "close").
+//  6. Sends the HTTP response using SendResponse.
+//  7. Continues serving new requests if "Connection: keep-alive" is set.
+//  8. Terminates when "Connection: close" is requested or a read/send error occurs.
 //
 // Parameters:
-//   - conn:   The network connection representing the client session.
-//   - router: The Router instance used to dispatch the request.
+//   - conn:   The TCP connection representing the active client session.
+//   - router: The Router instance responsible for dispatching the request.
 //
 // Behavior:
+//   - On read timeout: Closes the connection after 5 seconds of inactivity.
 //   - On parse failure: Logs the error and terminates gracefully.
-//   - On success: Routes the request and sends the corresponding response.
-//   - Always closes the connection when finished.
+//   - On client disconnect (EOF): Returns silently.
+//   - On keep-alive: Reuses the same connection for multiple requests.
+//   - Always closes the connection at the end of execution.
 //
 // Example:
 //
