@@ -42,7 +42,7 @@ import (
 func StartServer(port string) error {
 	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		fmt.Println("Failed to start server in port " + port)
+		fmt.Printf("Failed to start server in port %v\n %v", port, err)
 		os.Exit(1)
 	}
 	defer listener.Close()
