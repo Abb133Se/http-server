@@ -31,6 +31,10 @@ const (
 
 	// CLRF is the carriage-return/line-feed sequence used in HTTP.
 	CLRF = "\r\n"
+
+	MaxRequestLineLength = 4096     // 4 KB max for request line
+	MaxHeaderLineLength  = 8192     // 8 KB max for each header line
+	MaxBodySize          = 10 << 20 // 10 MB max body
 )
 
 // ParseRequest reads and parses an HTTP/1.1 request from a TCP connection.
@@ -52,6 +56,10 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 	}
 
 	requestLine = strings.TrimSpace(requestLine)
+	if len(requestLine) > MaxRequestLineLength {
+		utils.Warn("Request line too long: %d bytes", len(requestLine))
+		return nil, fmt.Errorf("request line too long")
+	}
 
 	parts := strings.Split(requestLine, " ")
 	if len(parts) != 3 {
@@ -77,6 +85,11 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 			break
 		}
 
+		if len(line) > MaxHeaderLineLength {
+			utils.Warn("Header line too long: %d bytes", len(line))
+			return nil, fmt.Errorf("header line too long")
+		}
+
 		headerParts := strings.SplitN(line, ":", 2)
 		if len(headerParts) == 2 {
 			key := strings.TrimSpace(headerParts[0])
@@ -93,6 +106,12 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 			utils.Error("Invalid Content-Length: %v", err)
 			return nil, fmt.Errorf("invalid Content-Length: %w", err)
 		}
+
+		if contentLength > MaxBodySize {
+			utils.Warn("Request body too large: %d bytes", contentLength)
+			return nil, fmt.Errorf("request body too large")
+		}
+
 		body := make([]byte, contentLength)
 		_, err = io.ReadFull(reader, body)
 		if err != nil {
