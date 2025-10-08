@@ -5,6 +5,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/Abb133Se/httpServer/internal/utils"
 )
 
 // Response represents an HTTP response message.
@@ -80,6 +82,7 @@ func BuildResponse(status int, reason string, headers map[string]string, body []
 
 	// Combine headers + body
 	response := append([]byte(sb.String()), body...)
+	utils.Debug("Built response: %d %s, Content-Length: %d", status, reason, len(body))
 	return response
 }
 
@@ -115,6 +118,12 @@ func BuildResponse(status int, reason string, headers map[string]string, body []
 //	}
 func SendResponse(conn net.Conn, res Response) error {
 	raw := BuildResponse(res.Status, res.Reason, res.Headers, res.Body)
-	_, err := conn.Write(raw)
-	return err
+	n, err := conn.Write(raw)
+	if err != nil {
+		utils.Error("Failed to send response: %v", err)
+		return err
+	}
+
+	utils.Info("Sent response: %d %s, bytes written: %d", res.Status, res.Reason, n)
+	return nil
 }

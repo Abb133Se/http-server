@@ -2,11 +2,14 @@ package server
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/Abb133Se/httpServer/internal/utils"
 )
 
 // Request represents an HTTP/1.1 request.
@@ -40,6 +43,11 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 
 	requestLine, err := reader.ReadString('\n')
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			utils.Debug("Client closed connection before sending request")
+			return nil, err
+		}
+		utils.Error("Failed to read request line: %v", err)
 		return nil, fmt.Errorf("failed to read request lines: %w", err)
 	}
 
@@ -47,6 +55,7 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 
 	parts := strings.Split(requestLine, " ")
 	if len(parts) != 3 {
+		utils.Warn("Malformed request line: %s", requestLine)
 		return nil, fmt.Errorf("malformed request line: %s", requestLine)
 	}
 
@@ -60,6 +69,7 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			utils.Error("Failed to read header: %v", err)
 			return nil, fmt.Errorf("failed to read header: %w", err)
 		}
 		line = strings.TrimSpace(line)
@@ -72,21 +82,26 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 			key := strings.TrimSpace(headerParts[0])
 			value := strings.TrimSpace(headerParts[1])
 			req.Headers[strings.ToLower(key)] = value
+		} else {
+			utils.Warn("Skipping malformed header line: %s", line)
 		}
 	}
 
 	if val, ok := req.Headers["content-length"]; ok {
 		contentLength, err := strconv.Atoi(val)
 		if err != nil {
+			utils.Error("Invalid Content-Length: %v", err)
 			return nil, fmt.Errorf("invalid Content-Length: %w", err)
 		}
 		body := make([]byte, contentLength)
 		_, err = io.ReadFull(reader, body)
 		if err != nil {
+			utils.Error("Failed to read request body: %v", err)
 			return nil, fmt.Errorf("failed to read body: %w", err)
 		}
 		req.Body = body
 	}
 
+	utils.Debug("Parsed request: method=%s, path=%s, headers=%v", req.Method, req.Path, req.Headers)
 	return req, nil
 }

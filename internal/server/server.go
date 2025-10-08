@@ -2,12 +2,13 @@ package server
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Abb133Se/httpServer/internal/utils"
 )
 
 // StartServer initializes and runs the HTTP server on the specified port.
@@ -42,12 +43,12 @@ import (
 func StartServer(port string) error {
 	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		fmt.Printf("Failed to start server in port %v\n %v", port, err)
+		utils.Error("Failed to start server on port %s: %v", port, err)
 		os.Exit(1)
 	}
 	defer listener.Close()
 
-	fmt.Printf("Server started on %s\n", port)
+	utils.Info("Server started on %s", port)
 
 	router := NewRouter()
 	router.Handle("/", "GET", handleRoot)
@@ -60,7 +61,7 @@ func StartServer(port string) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			fmt.Printf("Failed to accept connections: %v\n", err)
+			utils.Warn("Failed to accept connection: %v", err)
 			continue
 		}
 		go handleConnection(conn, router)
@@ -108,11 +109,13 @@ func handleConnection(conn net.Conn, router *Router) {
 		req, err := ParseRequest(conn)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				utils.Debug("Connection closed by client")
 				return
 			}
-			fmt.Printf("Failed to parse request: %v\n", req)
+			utils.Warn("Failed to parse request: %v", err)
 			return
 		}
+		utils.Info("Incoming request: %s %s", req.Method, req.Path)
 
 		resp := router.Route(req)
 
@@ -124,11 +127,14 @@ func handleConnection(conn net.Conn, router *Router) {
 		}
 
 		if err := SendResponse(conn, resp); err != nil {
-			fmt.Printf("failed to send response: %v\n", err)
+			utils.Warn("Failed to send response: %v", err)
 			return
 		}
 
+		utils.Info("Response sent: %s %s -> %d %s", req.Method, req.Path, resp.Status, resp.Reason)
+
 		if connectionHeader == "close" {
+			utils.Debug("Closing connection as per header")
 			return
 		}
 	}

@@ -1,19 +1,18 @@
 package main
 
 import (
-	"fmt"
-	"log"
-
 	"github.com/Abb133Se/httpServer/internal/config"
 	"github.com/Abb133Se/httpServer/internal/server"
+	"github.com/Abb133Se/httpServer/internal/utils"
 )
 
 func main() {
-	fmt.Println("server running: ")
-
 	config := config.LoadConfig()
+	utils.InitLogger(config.LogLevel)
+
+	utils.Info("Server starting")
 
 	if err := server.StartServer(config.Port); err != nil {
-		log.Fatalf("Error Starting Server: %v", err)
+		utils.Error("Error starting server: %v", err)
 	}
 }

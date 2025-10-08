@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/Abb133Se/httpServer/internal/utils"
 )
 
 // handleRoot handles requests to the root ("/") path.
@@ -13,6 +15,8 @@ import (
 // It returns a plain text response with status 200 OK and a
 // welcome message in the body.
 func handleRoot(req *Request) Response {
+	utils.Info("Handling root request: %s %s", req.Method, req.Path)
+
 	return Response{
 		Version: HTTPVersion,
 		Status:  200,
@@ -34,6 +38,8 @@ func handleEcho(req *Request) Response {
 		message = parts[1]
 	}
 
+	utils.Info("Echo request: %s %s -> %s", req.Method, req.Path, message)
+
 	return Response{
 		Version: HTTPVersion,
 		Status:  200,
@@ -48,9 +54,11 @@ func handleEcho(req *Request) Response {
 // It returns the value of the "User-Agent" request header as plain
 // text. Header keys are stored in lowercase internally, so the
 // correct key is "user-agent".
-
 func handleUserAgent(req *Request) Response {
 	ua := req.Headers["user-agent"]
+
+	utils.Info("User-Agent request: %s %s -> %s", req.Method, req.Path, ua)
+
 	return Response{
 		Version: HTTPVersion,
 		Status:  200,
@@ -79,6 +87,7 @@ func handleUserAgent(req *Request) Response {
 func handleFiles(req *Request) Response {
 	parts := strings.SplitN(req.Path, "/files/", 2)
 	if len(parts) < 2 || parts[1] == "" {
+		utils.Warn("File request with no filename: %s %s", req.Method, req.Path)
 		return Response{
 			Version: "HTTP/1.1",
 			Status:  400,
@@ -95,6 +104,7 @@ func handleFiles(req *Request) Response {
 	case "GET":
 		data, err := os.ReadFile(filePath)
 		if err != nil {
+			utils.Warn("File not found: %s", filePath)
 			return NotFoundResponse()
 		}
 		ext := filepath.Ext(filePath)
@@ -102,6 +112,7 @@ func handleFiles(req *Request) Response {
 		if mimeType == "" {
 			mimeType = "application/octet-stream"
 		}
+		utils.Info("Serving file: %s", filePath)
 		return Response{
 			Version: "HTTP/1.1",
 			Status:  200,
@@ -114,6 +125,7 @@ func handleFiles(req *Request) Response {
 		}
 	case "POST":
 		if err := os.WriteFile(filePath, req.Body, 0644); err != nil {
+			utils.Error("Failed to write file: %s, error: %v", filePath, err)
 			return Response{
 				Version: "HTTP/1.1",
 				Status:  500,
@@ -122,6 +134,7 @@ func handleFiles(req *Request) Response {
 				Body:    []byte("Failed to write file"),
 			}
 		}
+		utils.Info("File created successfully: %s", filePath)
 		return Response{
 			Version: "HTTP/1.1",
 			Status:  201,
@@ -130,6 +143,7 @@ func handleFiles(req *Request) Response {
 			Body:    []byte("File created successfully"),
 		}
 	default:
+		utils.Warn("Method not allowed for file: %s %s", req.Method, req.Path)
 		return MethodNotAllowedResponse()
 	}
 }
