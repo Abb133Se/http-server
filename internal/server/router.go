@@ -1,6 +1,10 @@
 package server
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/Abb133Se/httpServer/internal/utils"
+)
 
 // HandlerFunc defines the function signature for all HTTP route handlers.
 //
@@ -34,6 +38,7 @@ type Router struct {
 // Returns:
 //   - *Router: A pointer to a Router instance with no predefined routes.
 func NewRouter() *Router {
+	utils.Info("Initializing new router")
 	return &Router{
 		routes:       map[string]map[string]HandlerFunc{},
 		prefixRoutes: map[string]map[string]HandlerFunc{},
@@ -51,6 +56,7 @@ func (r *Router) Handle(path string, method string, handler HandlerFunc) {
 		r.routes[path] = make(map[string]HandlerFunc)
 	}
 	r.routes[path][method] = handler
+	utils.Debug("Registered route: %s %s", method, path)
 }
 
 // HandlePrefix registers a handler for all routes beginning with a prefix.
@@ -64,15 +70,16 @@ func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
 		r.prefixRoutes[path] = make(map[string]HandlerFunc)
 	}
 	r.prefixRoutes[path][method] = handler
+	utils.Debug("Registered prefix route: %s %s", method, path)
 }
 
 // Route dispatches a request to the correct handler.
 //
 // Matching priority:
-//   1. Exact match in routes.
-//   2. Prefix match in prefixRoutes.
-//   3. Returns a 404 Not Found if no match is found.
-//   4. Returns a 405 Method Not Allowed if path matches but method does not.
+//  1. Exact match in routes.
+//  2. Prefix match in prefixRoutes.
+//  3. Returns a 404 Not Found if no match is found.
+//  4. Returns a 405 Method Not Allowed if path matches but method does not.
 //
 // Parameters:
 //   - req: The parsed HTTP request to route.
@@ -82,19 +89,24 @@ func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
 func (r *Router) Route(req *Request) Response {
 	if methods, ok := r.routes[req.Path]; ok {
 		if h, ok := methods[req.Method]; ok {
+			utils.Debug("Routing request: %s %s -> exact match", req.Method, req.Path)
 			return h(req)
 		}
+		utils.Warn("Method not allowed: %s %s", req.Method, req.Path)
 		return MethodNotAllowedResponse()
 	}
 
 	for prefix, methods := range r.prefixRoutes {
 		if strings.HasPrefix(req.Path, prefix) {
 			if h, ok := methods[req.Method]; ok {
+				utils.Debug("Routing request: %s %s -> prefix match %s", req.Method, req.Path, prefix)
 				return h(req)
 			}
+			utils.Warn("Method not allowed on prefix: %s %s", req.Method, req.Path)
 			return MethodNotAllowedResponse()
 		}
 	}
+	utils.Warn("Route not found: %s %s", req.Method, req.Path)
 	return NotFoundResponse()
 }
 
