@@ -11,29 +11,24 @@ import (
 	"github.com/Abb133Se/httpServer/internal/utils"
 )
 
-// StartServer initializes and runs the HTTP server on the specified port.
+// StartServer starts a TCP-based HTTP server on the specified port.
 //
-// It binds a TCP listener to the given port (e.g., ":8080"), creates a Router,
-// registers default routes, and begins accepting client connections. Each
-// connection is handled concurrently in its own goroutine.
+// It sets up a Router, registers standard routes, and listens for incoming
+// client connections. Each connection is handled in its own goroutine, supporting
+// persistent connections (keep-alive) when requested.
 //
-// Registered routes:
+// Supported routes:
 //   - "/" → handleRoot
 //   - "/echo/{message}" → handleEcho
 //   - "/user-agent" → handleUserAgent
-//   - "/files/{filename}" → handleFiles (GET, POST)
+//   - "/files/{filename}" → handleFiles (GET, POST, PUT, DELETE, HEAD, OPTIONS)
 //
 // Parameters:
-//   - port: The address and port to bind the server on (e.g., ":8080" or "127.0.0.1:9090").
+//   - port: The address and port to bind the server on (e.g., ":8080").
 //
 // Returns:
-//   - error: Only returned if the TCP listener fails to start.
-//     Otherwise, this function typically blocks indefinitely until terminated.
-//
-// Behavior:
-//   - Logs a startup message when the server begins listening.
-//   - Spawns a new goroutine for each accepted client connection.
-//   - Continues running until the process is stopped.
+//   - error: Only if the TCP listener fails to start. Otherwise, this function
+//     blocks indefinitely until externally terminated.
 //
 // Example:
 //
@@ -52,11 +47,23 @@ func StartServer(port string) error {
 
 	router := NewRouter()
 	router.Handle("/", "GET", handleRoot)
+	router.Handle("/", "HEAD", handleRoot)
+	router.Handle("/", "OPTIONS", handleRoot)
+
 	router.HandlePrefix("/echo/", "GET", handleEcho)
+	router.HandlePrefix("/echo/", "HEAD", handleEcho)
+	router.HandlePrefix("/echo/", "OPTIONS", handleEcho)
+
 	router.Handle("/user-agent", "GET", handleUserAgent)
+	router.HandlePrefix("/echo/", "HEAD", handleUserAgent)
+	router.HandlePrefix("/echo/", "OPTIONS", handleUserAgent)
 
 	router.HandlePrefix("/files/", "GET", handleFiles)
+	router.HandlePrefix("/files/", "HEAD", handleFiles)
 	router.HandlePrefix("/files/", "POST", handleFiles)
+	router.HandlePrefix("/files/", "PUT", handleFiles)
+	router.HandlePrefix("/files/", "DELET", handleFiles)
+	router.HandlePrefix("/files/", "OPTIONS", handleFiles)
 
 	for {
 		conn, err := listener.Accept()
@@ -68,37 +75,30 @@ func StartServer(port string) error {
 	}
 }
 
-// handleConnection manages the full lifecycle of a single client connection.
+// handleConnection manages the lifecycle of a single client TCP connection.
 //
-// This function runs in its own goroutine for each accepted TCP connection.
-// It supports persistent (keep-alive) connections, allowing multiple HTTP
-// requests to be served sequentially over the same connection.
+// It supports persistent connections (HTTP keep-alive) and sequentially
+// serves multiple requests on the same connection if requested.
 //
 // Flow:
-//  1. Defers closure of the client connection to ensure cleanup.
-//  2. Sets a read deadline (5 seconds) to prevent hanging clients.
-//  3. Parses the incoming HTTP request using ParseRequest.
-//  4. Routes the request through the provided Router to obtain a response.
-//  5. Adds a "Connection" header based on the client's request
-//     (supports "keep-alive" and "close").
-//  6. Sends the HTTP response using SendResponse.
-//  7. Continues serving new requests if "Connection: keep-alive" is set.
-//  8. Terminates when "Connection: close" is requested or a read/send error occurs.
+//  1. Sets a read deadline of 5 seconds to prevent hanging connections.
+//  2. Parses the HTTP request using ParseRequest.
+//  3. Routes the request via the provided Router.
+//  4. Adds the appropriate "Connection" header based on the request.
+//  5. Sends the response and repeats if "Connection: keep-alive".
+//  6. Terminates on "Connection: close" or any read/send error.
 //
 // Parameters:
-//   - conn:   The TCP connection representing the active client session.
-//   - router: The Router instance responsible for dispatching the request.
+//   - conn: TCP connection representing the client session.
+//   - router: Router instance responsible for dispatching requests.
 //
 // Behavior:
-//   - On read timeout: Closes the connection after 5 seconds of inactivity.
-//   - On parse failure: Logs the error and terminates gracefully.
-//   - On client disconnect (EOF): Returns silently.
-//   - On keep-alive: Reuses the same connection for multiple requests.
-//   - Always closes the connection at the end of execution.
+//   - Closes the connection after inactivity or errors.
+//   - Logs requests and responses with status and reason.
+//   - Handles EOF gracefully when the client disconnects.
 //
 // Example:
 //
-//	// Inside StartServer accept loop
 //	go handleConnection(conn, router)
 func handleConnection(conn net.Conn, router *Router) {
 	defer conn.Close()

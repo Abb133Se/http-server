@@ -52,7 +52,8 @@ func NewRouter() *Router {
 //   - method:  HTTP method (e.g., "GET", "POST").
 //   - handler: The handler function to execute for this path+method.
 func (r *Router) Handle(path string, method string, handler HandlerFunc) {
-	if r.routes[path] == nil {
+	method = strings.ToUpper(method)
+	if _, ok := r.routes[path]; !ok {
 		r.routes[path] = make(map[string]HandlerFunc)
 	}
 	r.routes[path][method] = handler
@@ -66,20 +67,21 @@ func (r *Router) Handle(path string, method string, handler HandlerFunc) {
 //   - method:  HTTP method (e.g., "GET", "POST").
 //   - handler: The handler function to execute for matching requests.
 func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
-	if r.prefixRoutes[path] == nil {
+	method = strings.ToUpper(method)
+	if _, ok := r.prefixRoutes[path]; !ok {
 		r.prefixRoutes[path] = make(map[string]HandlerFunc)
 	}
 	r.prefixRoutes[path][method] = handler
 	utils.Debug("Registered prefix route: %s %s", method, path)
 }
 
-// Route dispatches a request to the correct handler.
+// Route dispatches a request to the appropriate handler.
 //
 // Matching priority:
-//  1. Exact match in routes.
-//  2. Prefix match in prefixRoutes.
-//  3. Returns a 404 Not Found if no match is found.
-//  4. Returns a 405 Method Not Allowed if path matches but method does not.
+//  1. Exact match
+//  2. Prefix match
+//  3. 404 Not Found if no match
+//  4. 405 Method Not Allowed if method unsupported
 //
 // Parameters:
 //   - req: The parsed HTTP request to route.
@@ -87,37 +89,52 @@ func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
 // Returns:
 //   - Response: The response from the matched handler, or a generated error response.
 func (r *Router) Route(req *Request) Response {
+	method := strings.ToUpper(req.Method)
 	if methods, ok := r.routes[req.Path]; ok {
-		if h, ok := methods[req.Method]; ok {
-			utils.Debug("Routing request: %s %s -> exact match", req.Method, req.Path)
-			return h(req)
+		if handler, exists := methods[method]; exists {
+			utils.Debug("Routing request: %s %s -> exact match", method, req.Path)
+			return handler(req)
 		}
-		utils.Warn("Method not allowed: %s %s", req.Method, req.Path)
-		return MethodNotAllowedResponse()
+		allow := GetAllowedMethods(methods)
+		utils.Warn("Method not allowed for exact path: %s %s, allowed: %s", method, req.Path, allow)
+		return MethodNotAllowedResponse(allow)
 	}
 
 	for prefix, methods := range r.prefixRoutes {
 		if strings.HasPrefix(req.Path, prefix) {
-			if h, ok := methods[req.Method]; ok {
-				utils.Debug("Routing request: %s %s -> prefix match %s", req.Method, req.Path, prefix)
-				return h(req)
+			if handler, ok := methods[method]; ok {
+				utils.Debug("Routing response: %s %s -> prefix match %s", method, req.Path, prefix)
+				return handler(req)
 			}
-			utils.Warn("Method not allowed on prefix: %s %s", req.Method, req.Path)
-			return MethodNotAllowedResponse()
+			allow := GetAllowedMethods(methods)
+			utils.Warn("Methods not allowed on prefix: %s %s, allowed: %s", method, req.Path, allow)
+			return MethodNotAllowedResponse(allow)
 		}
 	}
-	utils.Warn("Route not found: %s %s", req.Method, req.Path)
+
+	utils.Warn("Route not found for method: %s %s", method, req.Path)
 	return NotFoundResponse()
 }
 
+func GetAllowedMethods(methods map[string]HandlerFunc) string {
+	var allowed []string
+	for m := range methods {
+		allowed = append(allowed, m)
+	}
+	return strings.Join(allowed, ", ")
+}
+
 // MethodNotAllowedResponse generates a 405 Method Not Allowed response.
-func MethodNotAllowedResponse() Response {
+func MethodNotAllowedResponse(allaw string) Response {
 	return Response{
 		Version: "HTTP/1.1",
 		Status:  405,
 		Reason:  "Method Not Allowed",
-		Headers: map[string]string{"Content-Type": "text/plain"},
-		Body:    []byte("405 Method Not Allowed"),
+		Headers: map[string]string{
+			"Content-Type": "text/plain",
+			"Allow":        allaw,
+		},
+		Body: []byte("405 Method Not Allowed"),
 	}
 }
 
@@ -129,5 +146,20 @@ func NotFoundResponse() Response {
 		Reason:  "Not Found",
 		Headers: map[string]string{"Content-Type": "text/plain"},
 		Body:    []byte("404 Not Found"),
+	}
+}
+
+// OptionsResponse generates an automatic 204 No Content OPTIONS response
+// with the Allow header set.
+func OptionsResponse(allow string) Response {
+	utils.Info("Handling automatic OPTIONS response, Allow: %s", allow)
+	return Response{
+		Version: HTTPVersion,
+		Status:  204, // No Content
+		Reason:  "No Content",
+		Headers: map[string]string{
+			"Allow": allow,
+		},
+		Body: []byte(allow),
 	}
 }
