@@ -112,7 +112,18 @@ func handleConnection(conn net.Conn, router *Router) {
 				utils.Debug("Connection closed by client")
 				return
 			}
-			utils.Warn("Failed to parse request: %v", err)
+			utils.Warn("Malformed or oversized request: %v", err)
+			resp := Response{
+				Version: HTTPVersion,
+				Status:  400,
+				Reason:  "Bad Request",
+				Headers: map[string]string{"Content-Type": "text/plain"},
+				Body:    []byte("400 Bad Request"),
+			}
+
+			if sendErr := SendResponse(conn, resp); sendErr != nil {
+				utils.Warn("Failed to send 400 response: %v", sendErr)
+			}
 			return
 		}
 		utils.Info("Incoming request: %s %s", req.Method, req.Path)
