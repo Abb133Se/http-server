@@ -1,9 +1,13 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"strings"
+	"time"
 )
 
 // StartServer initializes and runs the HTTP server on the specified port.
@@ -88,15 +92,35 @@ func StartServer(port string) error {
 func handleConnection(conn net.Conn, router *Router) {
 	defer conn.Close()
 
-	req, err := ParseRequest(conn)
-	if err != nil {
-		fmt.Printf("Failed to Parse request: %v", err)
-		return
+	for {
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+		req, err := ParseRequest(conn)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			fmt.Printf("Failed to parse request: %v\n", req)
+			return
+		}
+
+		resp := router.Route(req)
+
+		connectionHeader := strings.ToLower(req.Headers["connection"])
+		if connectionHeader == "keep-alive" {
+			resp.Headers["Connection"] = "keep-alive"
+		} else {
+			resp.Headers["Connection"] = "close"
+		}
+
+		if err := SendResponse(conn, resp); err != nil {
+			fmt.Printf("failed to send response: %v\n", err)
+			return
+		}
+
+		if connectionHeader == "close" {
+			return
+		}
 	}
 
-	resp := router.Route(req)
-
-	if err := SendResponse(conn, resp); err != nil {
-		fmt.Printf("failed to send response: %v\n", err)
-	}
 }
