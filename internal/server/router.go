@@ -1,6 +1,7 @@
 package server
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/Abb133Se/httpServer/internal/utils"
@@ -24,13 +25,23 @@ import (
 //	}
 type HandlerFunc func(req *Request) Response
 
-// Router stores mappings of paths (exact or prefix) to handlers.
-//
-// It supports both exact matches ("/path") and prefix matches ("/files/…").
-// Each path can have multiple handlers mapped by HTTP method.
+type Route struct {
+	pattern   string
+	method    string
+	handler   HandlerFunc
+	paramKeys []string       // for path parameters
+	regex     *regexp.Regexp // compiled regex if it's a regex route
+	isPrefix  bool
+}
+
 type Router struct {
-	routes       map[string]map[string]HandlerFunc // exact path → method → handler
-	prefixRoutes map[string]map[string]HandlerFunc // prefix path → method → handler
+	routes []*Route
+	groups []*RouteGroup
+}
+
+type RouteGroup struct {
+	prefix string
+	routes []*Route
 }
 
 // NewRouter creates and initializes a new Router.
@@ -40,8 +51,8 @@ type Router struct {
 func NewRouter() *Router {
 	utils.Info("Initializing new router")
 	return &Router{
-		routes:       map[string]map[string]HandlerFunc{},
-		prefixRoutes: map[string]map[string]HandlerFunc{},
+		routes: []*Route{},
+		groups: []*RouteGroup{},
 	}
 }
 
@@ -51,12 +62,14 @@ func NewRouter() *Router {
 //   - path:    Exact match path (e.g., "/").
 //   - method:  HTTP method (e.g., "GET", "POST").
 //   - handler: The handler function to execute for this path+method.
-func (r *Router) Handle(path string, method string, handler HandlerFunc) {
+func (r *Router) Handle(path, method string, handler HandlerFunc) {
 	method = strings.ToUpper(method)
-	if _, ok := r.routes[path]; !ok {
-		r.routes[path] = make(map[string]HandlerFunc)
+	route := &Route{
+		pattern: path,
+		method:  method,
+		handler: handler,
 	}
-	r.routes[path][method] = handler
+	r.routes = append(r.routes, route)
 	utils.Debug("Registered route: %s %s", method, path)
 }
 
@@ -66,13 +79,44 @@ func (r *Router) Handle(path string, method string, handler HandlerFunc) {
 //   - path:    Path prefix (e.g., "/files/").
 //   - method:  HTTP method (e.g., "GET", "POST").
 //   - handler: The handler function to execute for matching requests.
-func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
-	method = strings.ToUpper(method)
-	if _, ok := r.prefixRoutes[path]; !ok {
-		r.prefixRoutes[path] = make(map[string]HandlerFunc)
+// func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
+// 	method = strings.ToUpper(method)
+// 	if _, ok := r.prefixRoutes[path]; !ok {
+// 		r.prefixRoutes[path] = make(map[string]HandlerFunc)
+// 	}
+// 	r.prefixRoutes[path][method] = handler
+// 	utils.Debug("Registered prefix route: %s %s", method, path)
+// }
+
+func (r *Router) Group(prefix string) *RouteGroup {
+	group := &RouteGroup{prefix: prefix}
+	r.groups = append(r.groups, group)
+	return group
+}
+
+func (r *Router) HandleRegex(pattern string, handler HandlerFunc) error {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return err
 	}
-	r.prefixRoutes[path][method] = handler
-	utils.Debug("Registered prefix route: %s %s", method, path)
+	route := &Route{
+		pattern: pattern,
+		handler: handler,
+		regex:   re,
+	}
+	r.routes = append(r.routes, route)
+	utils.Debug("Registered regex route: %s", pattern)
+	return nil
+}
+
+func (g *RouteGroup) Handle(path string, handler HandlerFunc) {
+	fullPath := g.prefix + path
+	route := &Route{
+		pattern: fullPath,
+		handler: handler,
+	}
+	g.routes = append(g.routes, route)
+	utils.Debug("Registered grouped route: %s", fullPath)
 }
 
 // Route dispatches a request to the appropriate handler.
@@ -89,31 +133,70 @@ func (r *Router) HandlePrefix(path string, method string, handler HandlerFunc) {
 // Returns:
 //   - Response: The response from the matched handler, or a generated error response.
 func (r *Router) Route(req *Request) Response {
-	method := strings.ToUpper(req.Method)
-	if methods, ok := r.routes[req.Path]; ok {
-		if handler, exists := methods[method]; exists {
-			utils.Debug("Routing request: %s %s -> exact match", method, req.Path)
-			return handler(req)
+	for _, route := range r.routes {
+		if route.method != "" && route.method != strings.ToUpper(req.Method) {
+			continue
 		}
-		allow := GetAllowedMethods(methods)
-		utils.Warn("Method not allowed for exact path: %s %s, allowed: %s", method, req.Path, allow)
-		return MethodNotAllowedResponse(allow)
-	}
-
-	for prefix, methods := range r.prefixRoutes {
-		if strings.HasPrefix(req.Path, prefix) {
-			if handler, ok := methods[method]; ok {
-				utils.Debug("Routing response: %s %s -> prefix match %s", method, req.Path, prefix)
-				return handler(req)
+		if route.regex != nil && route.regex.MatchString(req.Path) {
+			utils.Debug("Routing to regex route: %s", route.pattern)
+			return route.handler(req)
+		} else if strings.HasPrefix(route.pattern, ":") || strings.Contains(route.pattern, ":") {
+			params := extractParams(route.pattern, req.Path)
+			if params != nil {
+				req.Params = params
+				utils.Debug("Routing to parameterized route: %s", route.pattern)
+				return route.handler(req)
 			}
-			allow := GetAllowedMethods(methods)
-			utils.Warn("Methods not allowed on prefix: %s %s, allowed: %s", method, req.Path, allow)
-			return MethodNotAllowedResponse(allow)
+		} else if route.pattern == req.Path {
+			utils.Debug("Routing to exact match: %s", route.pattern)
+			return route.handler(req)
+		} else if route.isPrefix && strings.HasPrefix(req.Path, route.pattern) {
+			utils.Debug("Routing to prefix route: %s", route.pattern)
+			return route.handler(req)
 		}
 	}
-
-	utils.Warn("Route not found for method: %s %s", method, req.Path)
+	for _, group := range r.groups {
+		for _, route := range group.routes {
+			if route.method != "" && route.method != strings.ToUpper(req.Method) {
+				continue
+			}
+			if route.pattern == req.Path {
+				return route.handler(req)
+			}
+		}
+	}
+	utils.Warn("Route not found for method: %s %s", req.Method, req.Path)
 	return NotFoundResponse()
+}
+
+func (r *Router) HandlePrefix(prefix, method string, handler HandlerFunc) {
+	method = strings.ToUpper(method)
+	route := &Route{
+		pattern:  prefix,
+		method:   method,
+		handler:  handler,
+		isPrefix: true,
+	}
+	r.routes = append(r.routes, route)
+	utils.Debug("Registered prefix route: %s %s", method, prefix)
+}
+
+func extractParams(pattern, path string) map[string]string {
+	patternParts := strings.Split(pattern, "/")
+	pathParts := strings.Split(path, "/")
+	if len(patternParts) != len(pathParts) {
+		return nil
+	}
+
+	params := make(map[string]string)
+	for i := range patternParts {
+		if strings.HasPrefix(patternParts[i], ":") {
+			params[patternParts[i][1:]] = pathParts[i]
+		} else if patternParts[i] != pathParts[i] {
+			return nil
+		}
+	}
+	return params
 }
 
 func GetAllowedMethods(methods map[string]HandlerFunc) string {
@@ -125,14 +208,14 @@ func GetAllowedMethods(methods map[string]HandlerFunc) string {
 }
 
 // MethodNotAllowedResponse generates a 405 Method Not Allowed response.
-func MethodNotAllowedResponse(allaw string) Response {
+func MethodNotAllowedResponse(allow string) Response {
 	return Response{
 		Version: "HTTP/1.1",
 		Status:  405,
 		Reason:  "Method Not Allowed",
 		Headers: map[string]string{
 			"Content-Type": "text/plain",
-			"Allow":        allaw,
+			"Allow":        allow,
 		},
 		Body: []byte("405 Method Not Allowed"),
 	}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"mime"
 	"os"
 	"path/filepath"
@@ -131,8 +132,7 @@ func handleFiles(req *Request) Response {
 		}
 	}
 
-	cwd, _ := os.Getwd()
-	filePath := filepath.Join(cwd, "public", parts[1])
+	filePath := filepath.Join(getPublicDir(), parts[1])
 
 	switch req.Method {
 	case "GET", "HEAD":
@@ -209,4 +209,25 @@ func handleFiles(req *Request) Response {
 		utils.Warn("Unsupported method on file: %s %s", req.Method, req.Path)
 		return MethodNotAllowedResponse("GET, HEAD, POST, PUT, DELETE, OPTIONS")
 	}
+}
+
+func handleUserByID(req *Request) Response {
+	utils.Info("Regex route matched: %s", req.Path)
+	return Response{
+		Version: HTTPVersion,
+		Status:  200,
+		Reason:  "OK",
+		Headers: map[string]string{"Content-Type": "text/plain"},
+		Body:    []byte(fmt.Sprintf("Matched user path: %s", req.Path)),
+	}
+}
+
+func getPublicDir() string {
+	cwd, _ := os.Getwd()
+	publicDir := filepath.Join(cwd, "public")
+	if _, err := os.Stat(publicDir); os.IsNotExist(err) {
+		parent := filepath.Dir(cwd)
+		publicDir = filepath.Join(parent, "public")
+	}
+	return publicDir
 }

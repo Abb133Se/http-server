@@ -12,7 +12,7 @@ func main() {
 
 	utils.Info("Server starting")
 
-	if err := server.StartServer(config.Port); err != nil {
+	if err := server.StartServer(config.Port, config); err != nil {
 		utils.Error("Error starting server: %v", err)
 	}
 }
