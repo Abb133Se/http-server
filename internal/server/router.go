@@ -25,6 +25,8 @@ import (
 //	}
 type HandlerFunc func(req *Request) Response
 
+type MiddlewareFunc func(next HandlerFunc) HandlerFunc
+
 type Route struct {
 	pattern   string
 	method    string
@@ -35,8 +37,9 @@ type Route struct {
 }
 
 type Router struct {
-	routes []*Route
-	groups []*RouteGroup
+	routes      []*Route
+	groups      []*RouteGroup
+	middlewares []MiddlewareFunc
 }
 
 type RouteGroup struct {
@@ -51,8 +54,9 @@ type RouteGroup struct {
 func NewRouter() *Router {
 	utils.Info("Initializing new router")
 	return &Router{
-		routes: []*Route{},
-		groups: []*RouteGroup{},
+		routes:      []*Route{},
+		groups:      []*RouteGroup{},
+		middlewares: []MiddlewareFunc{},
 	}
 }
 
@@ -71,6 +75,10 @@ func (r *Router) Handle(path, method string, handler HandlerFunc) {
 	}
 	r.routes = append(r.routes, route)
 	utils.Debug("Registered route: %s %s", method, path)
+}
+
+func (r *Router) Use(mw MiddlewareFunc) {
+	r.middlewares = append(r.middlewares, mw)
 }
 
 // HandlePrefix registers a handler for all routes beginning with a prefix.
@@ -133,40 +141,80 @@ func (g *RouteGroup) Handle(path string, handler HandlerFunc) {
 // Returns:
 //   - Response: The response from the matched handler, or a generated error response.
 func (r *Router) Route(req *Request) Response {
+	var handler HandlerFunc
+
 	for _, route := range r.routes {
 		if route.method != "" && route.method != strings.ToUpper(req.Method) {
 			continue
 		}
 		if route.regex != nil && route.regex.MatchString(req.Path) {
 			utils.Debug("Routing to regex route: %s", route.pattern)
-			return route.handler(req)
-		} else if strings.HasPrefix(route.pattern, ":") || strings.Contains(route.pattern, ":") {
+			handler = route.handler
+			break
+		}
+		if strings.Contains(route.pattern, ":") {
 			params := extractParams(route.pattern, req.Path)
 			if params != nil {
 				req.Params = params
 				utils.Debug("Routing to parameterized route: %s", route.pattern)
-				return route.handler(req)
+				handler = route.handler
+				break
 			}
-		} else if route.pattern == req.Path {
+		}
+		if route.pattern == req.Path {
 			utils.Debug("Routing to exact match: %s", route.pattern)
-			return route.handler(req)
-		} else if route.isPrefix && strings.HasPrefix(req.Path, route.pattern) {
+			handler = route.handler
+			break
+		}
+		if route.isPrefix && strings.HasPrefix(req.Path, route.pattern) {
 			utils.Debug("Routing to prefix route: %s", route.pattern)
-			return route.handler(req)
+			handler = route.handler
+			break
 		}
 	}
-	for _, group := range r.groups {
-		for _, route := range group.routes {
-			if route.method != "" && route.method != strings.ToUpper(req.Method) {
-				continue
+
+	if handler == nil {
+		for _, group := range r.groups {
+			for _, route := range group.routes {
+				if route.method != "" && route.method != strings.ToUpper(req.Method) {
+					continue
+				}
+				if route.pattern == req.Path {
+					handler = route.handler
+					break
+				}
 			}
-			if route.pattern == req.Path {
-				return route.handler(req)
+			if handler != nil {
+				break
 			}
 		}
 	}
-	utils.Warn("Route not found for method: %s %s", req.Method, req.Path)
-	return NotFoundResponse()
+
+	if handler == nil {
+		utils.Warn("Route not found for method: %s %s", req.Method, req.Path)
+		return NotFoundResponse()
+	}
+
+	finalHandler := handler
+	for i := len(r.middlewares) - 1; i >= 0; i-- {
+		finalHandler = r.middlewares[i](finalHandler)
+
+	}
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			utils.Error("Recovered from panic in handler: %v", rec)
+		}
+	}()
+
+	resp := finalHandler(req)
+
+	if resp.Status == 0 {
+		utils.Warn("Handler returned empty response, using internal server error")
+		return InternalServerErrorResponse()
+	}
+
+	return resp
 }
 
 func (r *Router) HandlePrefix(prefix, method string, handler HandlerFunc) {
