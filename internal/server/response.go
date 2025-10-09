@@ -74,11 +74,11 @@ func BuildResponse(status int, reason string, headers map[string]string, body []
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s %d %s%s", HTTPVersion, status, reason, CLRF))
+	sb.WriteString(fmt.Sprintf("%s %d %s%s", HTTPVersion, status, reason, CRLF))
 	for k, v := range headers {
-		sb.WriteString(fmt.Sprintf("%s: %s%s", k, v, CLRF))
+		sb.WriteString(fmt.Sprintf("%s: %s%s", k, v, CRLF))
 	}
-	sb.WriteString(CLRF)
+	sb.WriteString(CRLF)
 
 	// Combine headers + body
 	response := append([]byte(sb.String()), body...)

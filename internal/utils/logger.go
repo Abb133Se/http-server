@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -27,7 +28,7 @@ var (
 //	cfg := config.LoadConfig()
 //	utils.InitLogger(cfg.LogLevel)
 func InitLogger(level string) {
-	logLevel = level
+	logLevel = strings.ToLower(level)
 	logger = log.New(os.Stdout, "", 0)
 }
 

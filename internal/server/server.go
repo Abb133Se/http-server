@@ -2,12 +2,13 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/Abb133Se/httpServer/internal/config"
 	"github.com/Abb133Se/httpServer/internal/utils"
 )
 
@@ -35,35 +36,17 @@ import (
 //	if err := server.StartServer(":8080"); err != nil {
 //	    log.Fatalf("Server failed: %v", err)
 //	}
-func StartServer(port string) error {
+func StartServer(port string, config *config.Config) error {
 	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		utils.Error("Failed to start server on port %s: %v", port, err)
-		os.Exit(1)
+		return fmt.Errorf("failed to start server on port %s: %w", port, err)
 	}
 	defer listener.Close()
 
 	utils.Info("Server started on %s", port)
 
 	router := NewRouter()
-	router.Handle("/", "GET", handleRoot)
-	router.Handle("/", "HEAD", handleRoot)
-	router.Handle("/", "OPTIONS", handleRoot)
-
-	router.HandlePrefix("/echo/", "GET", handleEcho)
-	router.HandlePrefix("/echo/", "HEAD", handleEcho)
-	router.HandlePrefix("/echo/", "OPTIONS", handleEcho)
-
-	router.Handle("/user-agent", "GET", handleUserAgent)
-	router.HandlePrefix("/echo/", "HEAD", handleUserAgent)
-	router.HandlePrefix("/echo/", "OPTIONS", handleUserAgent)
-
-	router.HandlePrefix("/files/", "GET", handleFiles)
-	router.HandlePrefix("/files/", "HEAD", handleFiles)
-	router.HandlePrefix("/files/", "POST", handleFiles)
-	router.HandlePrefix("/files/", "PUT", handleFiles)
-	router.HandlePrefix("/files/", "DELET", handleFiles)
-	router.HandlePrefix("/files/", "OPTIONS", handleFiles)
+	setupRoutes(router)
 
 	for {
 		conn, err := listener.Accept()
@@ -71,8 +54,33 @@ func StartServer(port string) error {
 			utils.Warn("Failed to accept connection: %v", err)
 			continue
 		}
-		go handleConnection(conn, router)
+		go handleConnection(conn, router, config)
 	}
+}
+
+func setupRoutes(router *Router) {
+	router.Handle("/", "GET", handleRoot)
+	router.Handle("/", "HEAD", handleRoot)
+	router.Handle("/", "OPTIONS", handleRoot)
+
+	router.Handle("/echo/", "GET", handleEcho)
+	router.Handle("/echo/", "HEAD", handleEcho)
+	router.Handle("/echo/", "OPTIONS", handleEcho)
+
+	router.Handle("/user-agent", "GET", handleUserAgent)
+	router.Handle("/user-agent", "HEAD", handleUserAgent)
+	router.Handle("/user-agent", "OPTIONS", handleUserAgent)
+
+	router.HandlePrefix("/files/", "GET", handleFiles)
+	router.HandlePrefix("/files/", "HEAD", handleFiles)
+	router.HandlePrefix("/files/", "POST", handleFiles)
+	router.HandlePrefix("/files/", "PUT", handleFiles)
+	router.HandlePrefix("/files/", "DELETE", handleFiles)
+	router.HandlePrefix("/files/", "OPTIONS", handleFiles)
+
+	router.HandleRegex(`^/user/\d+$`, handleUserByID)
+
+	utils.Info("All routes registered successfully")
 }
 
 // handleConnection manages the lifecycle of a single client TCP connection.
@@ -100,11 +108,11 @@ func StartServer(port string) error {
 // Example:
 //
 //	go handleConnection(conn, router)
-func handleConnection(conn net.Conn, router *Router) {
+func handleConnection(conn net.Conn, router *Router, config *config.Config) {
 	defer conn.Close()
 
 	for {
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(config.ReadTimeout))
 
 		req, err := ParseRequest(conn)
 		if err != nil {

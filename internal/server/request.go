@@ -23,6 +23,7 @@ type Request struct {
 	Version string
 	Headers map[string]string
 	Body    []byte
+	Params  map[string]string
 }
 
 const (
@@ -30,7 +31,7 @@ const (
 	HTTPVersion = "HTTP/1.1"
 
 	// CLRF is the carriage-return/line-feed sequence used in HTTP.
-	CLRF = "\r\n"
+	CRLF = "\r\n"
 
 	MaxRequestLineLength = 4096     // 4 KB max for request line
 	MaxHeaderLineLength  = 8192     // 8 KB max for each header line
@@ -52,7 +53,7 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 			return nil, err
 		}
 		utils.Error("Failed to read request line: %v", err)
-		return nil, fmt.Errorf("failed to read request lines: %w", err)
+		return nil, fmt.Errorf("failed to read request line: %w", err)
 	}
 
 	requestLine = strings.TrimSpace(requestLine)
@@ -118,6 +119,7 @@ func ParseRequest(conn net.Conn) (*Request, error) {
 			utils.Error("Failed to read request body: %v", err)
 			return nil, fmt.Errorf("failed to read body: %w", err)
 		}
+		utils.Debug("Request body size: %d bytes", len(req.Body))
 		req.Body = body
 	}
 
