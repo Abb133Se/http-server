@@ -47,6 +47,7 @@ func StartServer(port string, config *config.Config) error {
 
 	router := NewRouter()
 	setupRoutes(router)
+	router.Use(LoggingMiddleware)
 
 	for {
 		conn, err := listener.Accept()
