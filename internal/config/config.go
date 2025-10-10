@@ -25,11 +25,13 @@ import (
 //   - LOG_LEVEL:     Logging verbosity level ("debug", "info", "warn", default: "info")
 
 type Config struct {
-	Port         string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	IdleTimeout  time.Duration
-	LogLevel     string
+	Port              string
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	LogLevel          string
+	MaxRequestPerConn int
+	ConnectionTimeout time.Duration
 }
 
 // LoadConfig loads configuration settings from environment variables or a .env file.
@@ -72,6 +74,13 @@ func LoadConfig() *Config {
 		WriteTimeout: time.Duration(writeTimeout) * time.Second,
 		IdleTimeout:  time.Duration(idleTimeout) * time.Second,
 		LogLevel:     getEnv("LOG_LEVEL", "Info"),
+	}
+
+	if cfg.MaxRequestPerConn == 0 {
+		cfg.MaxRequestPerConn = 100
+	}
+	if cfg.ConnectionTimeout == 0 {
+		cfg.ConnectionTimeout = 2 * time.Minute
 	}
 
 	utils.Info("Configuration loaded: Port=%s, ReadTimeout=%ds, WriteTimeout=%ds, IdleTimeout=%ds, LogLevel=%s",
