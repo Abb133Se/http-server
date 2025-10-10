@@ -2,11 +2,13 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Abb133Se/httpServer/internal/utils"
 )
@@ -219,6 +221,24 @@ func handleUserByID(req *Request) Response {
 		Reason:  "OK",
 		Headers: map[string]string{"Content-Type": "text/plain"},
 		Body:    []byte(fmt.Sprintf("Matched user path: %s", req.Path)),
+	}
+}
+
+func handleStream(req *Request) Response {
+	utils.Info("Starting streaming response")
+
+	return Response{
+		Version: "HTTP/1.1",
+		Status:  200,
+		Reason:  "OK",
+		Headers: map[string]string{"Content-Type": "text/plain"},
+		StreamFunc: func(w io.Writer) error {
+			for i := 1; i <= 10; i++ {
+				fmt.Fprintf(w, "Chunk %d\n", i)
+				time.Sleep(1 * time.Second)
+			}
+			return nil
+		},
 	}
 }
 
