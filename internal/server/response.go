@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -19,11 +21,16 @@ import (
 //   - Headers: Response headers as a key-value map.
 //   - Body:    The response body content as a string.
 type Response struct {
-	Version string
-	Status  int
-	Reason  string
-	Headers map[string]string
-	Body    []byte
+	Version    string
+	Status     int
+	Reason     string
+	Headers    map[string]string
+	Body       []byte
+	StreamFunc func(io.Writer) error
+}
+
+type ChunkedWriter struct {
+	w *bufio.Writer
 }
 
 // BuildResponse constructs a raw HTTP response string from the provided parameters.
@@ -117,13 +124,56 @@ func BuildResponse(status int, reason string, headers map[string]string, body []
 //	    log.Printf("failed to send response: %v", err)
 //	}
 func SendResponse(conn net.Conn, res Response) error {
-	raw := BuildResponse(res.Status, res.Reason, res.Headers, res.Body)
-	n, err := conn.Write(raw)
-	if err != nil {
-		utils.Error("Failed to send response: %v", err)
-		return err
+	writer := bufio.NewWriter(conn)
+
+	fmt.Fprintf(writer, "%s %d %s%s", res.Version, res.Status, res.Reason, CRLF)
+
+	if res.StreamFunc != nil {
+		res.Headers["Transfer-Encoding"] = "chunked"
 	}
 
-	utils.Info("Sent response: %d %s, bytes written: %d", res.Status, res.Reason, n)
-	return nil
+	for k, v := range res.Headers {
+		fmt.Fprintf(writer, "%s: %s%s", k, v, CRLF)
+	}
+	fmt.Fprintf(writer, "%s", CRLF)
+	writer.Flush()
+
+	if res.StreamFunc != nil {
+		chunkedWriter := NewChunkedWriter(writer)
+		if err := res.StreamFunc(chunkedWriter); err != nil {
+			utils.Error("Stram error: %v", err)
+			return err
+		}
+		chunkedWriter.Close()
+		return writer.Flush()
+	}
+
+	if len(res.Body) > 0 {
+		_, err := writer.Write(res.Body)
+		if err != nil {
+			return err
+		}
+	}
+	return writer.Flush()
+}
+
+func NewChunkedWriter(w *bufio.Writer) *ChunkedWriter {
+	return &ChunkedWriter{w: w}
+}
+
+func (cw *ChunkedWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	fmt.Fprintf(cw.w, "%x%s", len(p), CRLF)
+	cw.w.Write(p)
+	cw.w.WriteString(CRLF)
+	return len(p), nil
+}
+
+func (cw *ChunkedWriter) Close() error {
+	// Write zero-length chunk to signal end
+	_, err := cw.w.WriteString("0\r\n\r\n")
+	return err
 }

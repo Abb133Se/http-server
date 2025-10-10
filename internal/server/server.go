@@ -81,6 +81,8 @@ func setupRoutes(router *Router) {
 
 	router.HandleRegex(`^/user/\d+$`, handleUserByID)
 
+	router.Handle("/stream", "GET", handleStream)
+
 	utils.Info("All routes registered successfully")
 }
 
