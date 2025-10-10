@@ -114,8 +114,24 @@ func setupRoutes(router *Router) {
 func handleConnection(conn net.Conn, router *Router, config *config.Config) {
 	defer conn.Close()
 
+	startTime := time.Now()
+	requestCount := 0
+
+	defer func() {
+		utils.Info("Connection closed after %d requests, duration: %v", requestCount, time.Since(startTime))
+	}()
+
 	for {
 		conn.SetReadDeadline(time.Now().Add(config.ReadTimeout))
+
+		if time.Since(startTime) > config.ConnectionTimeout {
+			utils.Warn("Connection timeout reached; closing connection")
+			return
+		}
+
+		if requestCount > config.MaxRequestPerConn {
+			utils.Warn("Max requests per connection reached (%d); closing connection", config.MaxRequestPerConn)
+		}
 
 		req, err := ParseRequest(conn)
 		if err != nil {
